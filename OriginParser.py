@@ -31,7 +31,7 @@ def merge():
     soup = BeautifulSoup(open('Origin.html'),'lxml')                 # Обёртка HTML
     a = BeautifulSoup(open('main.html'),'lxml')                      # Сама таблица, переконвертированная в HTML
     soup.body.append(a)                                              # Объединение файлов
-    with open("child.html", "w") as file:                            # Запись нового файла
+    with open("index.html", "w") as file:                            # Запись нового файла
         file.write(str(soup))
 
 def main():
