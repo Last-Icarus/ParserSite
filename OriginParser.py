@@ -2,30 +2,15 @@ from bs4 import BeautifulSoup
 import requests
 import pandas 
 
+
+
 def save():
     df.to_html('main.html',index=False)
     with open('main.html','r') as file:
         filedata = file.read()
-        filedata = filedata.replace('&lt;','<').replace('&rt;','>') # Питон не понимает скобки, приходится заменять их прямо в файле
+        filedata = filedata.replace('&lt;','<').replace('&gt;','>') # Питон не понимает скобки, приходится заменять их прямо в файле
     with open('main.html','w') as file:
         file.write(filedata)
-
-def sort(sort_by=None,asc=False):
-    if sort_by == None:
-        return
-    global df                                                       # global позволяет манипулировать таблицей на всех уровнях
-    column_list = []
-    if sort_by=='NAME':                                             # Случай, когда у нас идёт сортировка по названию
-        df = df.sort_values('NAME',ascending=asc)
-        return
-    for i in df[sort_by]:
-        try: 
-            column_list.append(float(i.replace(',','')))            # Сортировка чисел. Весь этот модуль существует только потому, что числа записываются через чёртову запятую
-        except(ValueError):                                         # Но что поделать, так красиво
-            column_list.append(0)                                   # Некоторые предметы не имеют стоимости, тогда вместо ошибки значения им будет присвоен ноль
-    df['SortCol']=column_list
-    df = df.sort_values('SortCol',ascending=asc)
-    del df['SortCol']
 
 def merge():
     soup = BeautifulSoup(open('Origin.html'),'lxml')                 # Обёртка HTML
@@ -34,39 +19,55 @@ def merge():
     with open("index.html", "w") as file:                            # Запись нового файла
         file.write(str(soup))
 
-def main():
+def main(count=5):
     url = 'https://www.thecycledb.com/items'
     header = ['NAME','LOGO','K-MARKS VALUE','VALUE PER WEIGHT','FACTION XP','XP PER POUND','WEIGHT','PURCHASE/CRAFT COST']
     soup = BeautifulSoup(requests.get(url).text,'lxml')
 
     items = []
+    #-------------
+    counter = 0
+    #-------------
 
     for item in soup.find_all('tr',class_='hover cursor-pointer group hover:active'):
         list=[item.find('th').text]
         s = soup.find_all('img',alt=list[0])[1]['src']
         list.append(f'<img src="{s}" style="height:70px">')
         for element in item.find_all('td')[0:5]:
-            list.append(element.text)
+            a = float(element.text.replace(',',''))
+            if a % 1 == 0:
+                a = int(a)
+            list.append(a)
 
         item_soup = BeautifulSoup(requests.get(url[:-1]+'/'+list[0].lower().replace("'",'').replace(' ','-')).text,'lxml')  # Парсинг рыночной стоимости с заходом на страницу предмета
         try:
             a = item_soup.find('h3',string='Shop Price')
-            list.append(a.next_element.next_element.text)
+            list.append(a.next_element.next_element.text.replace(',',''))
         except(AttributeError):
             list.append("Can't be bought")
         items.append(list)
+    #-------------
+        counter+=1
+        if counter==count:
+            break
+    #-------------
 
-    global df                                                        # global позволяет манипулировать таблицей на всех уровнях
+    global df                                                         # global позволяет манипулировать таблицей на всех уровнях(Заглушка, потом реализую через ООП)
     df = pandas.DataFrame(items,columns=header)
-    columns_titles = ['LOGO','NAME','K-MARKS VALUE','VALUE PER WEIGHT','FACTION XP','XP PER POUND','WEIGHT','PURCHASE/CRAFT COST']
-    df = df.reindex(columns=columns_titles)
+    pandas.options.display.float_format = '{:,}'.format
+    header = ['LOGO','NAME','K-MARKS VALUE','VALUE PER WEIGHT','FACTION XP','XP PER POUND','WEIGHT','PURCHASE/CRAFT COST']
+    df = df.reindex(columns=header)
 
 
-def compile(sort_by=None): 
-    main()
-    sort(sort_by)
+def compile(sort_by=None,asc=False): 
+    main(6)
+    if sort_by != None:
+        global df
+        df = df.sort_values(sort_by,ascending=asc)
     save()
     merge()
 
 if __name__ == '__main__':
-    compile()
+    compile('K-MARKS VALUE')
+
+
