@@ -1,80 +1,71 @@
 from bs4 import BeautifulSoup
 import requests
 import pandas 
-
+import asyncio
+import aiohttp
+import timeit
 
 class Frame():
-    def __init__(self,df):
+    def __init__(self,df,items):
         self.df = df
-
+        self.items = items
     def main(self,count=0):
 
-        # Шапка и запрос сайта с таблицей
 
         url = 'https://www.thecycledb.com/items'
-        header = ['NAME','LOGO','K-MARKS VALUE','VALUE PER POUND','FACTION XP','XP PER POUND','WEIGHT','PURCHASE/CRAFT COST']
+        header = ['NAME','LOGO','K-MARKS VALUE','VALUE PER POUND','FACTION XP','XP PER POUND','WEIGHT']
         soup = BeautifulSoup(requests.get(url).text,'lxml')
 
-        items = []
 
-        #-------------
-        counter = 0
-        #-------------
 
-        # Основной модуль парсинга
-
+        add_list = []
         for item in soup.find_all('tr',class_='hover cursor-pointer group hover:active'):
-            list=[item.find('th').text]                             # Парсинг имени
-
-            s = soup.find_all('img',alt=list[0])[1]['src']          # Парсинг иконки по имени
+            list=[item.find('th').text]                             
+            add_list.append(item.find('th').text)
+            s = soup.find_all('img',alt=list[0])[1]['src']          
             list.append(f'<img src="{s}" style="height:70px">')
 
-            for element in item.find_all('td')[0:5]:                # Парсинг остальных элементов кроме последнего
+            for element in item.find_all('td')[0:5]:                
                 a = float(element.text.replace(',',''))
                 if a % 1 == 0:
                     a = int(a)
                 list.append(a)
 
-            item_soup = BeautifulSoup(requests.get(url[:-1]+'/'+list[0].lower().replace("'",'').replace(' ','-')).text,'lxml')  # Парсинг последнего эелемента со страницы предмета
-            try:
-                a = item_soup.find('h3',string='Shop Price')
-                list.append(int(a.next_element.next_element.text.replace(',','')))
-            except(AttributeError):
-                list.append(0)
-            items.append(list)
-        #-------------
-            counter+=1
-            if counter==count:
-                break
-        #-------------
+            self.items.append(list)
 
-        # Сохранение 
 
-        self.df = pandas.DataFrame(items,columns=header,dtype=object) # dtype для того, чтобы столб воспринимал одновременно int и float, иначе будет автоконвертация
-        pandas.options.display.float_format = '{:,}'.format # Сделал так, чтобы тысячи отделялись запятой, потому что так красивее
 
-        header = ['LOGO','NAME','K-MARKS VALUE','VALUE PER POUND','FACTION XP','XP PER POUND','WEIGHT','PURCHASE/CRAFT COST']  # Поменял местами картинки и названия, потому что так красивее
+        self.df = pandas.DataFrame(self.items,columns=header,dtype=object) 
+        pandas.options.display.float_format = '{:,}'.format 
+
+        header = ['LOGO','NAME','K-MARKS VALUE','VALUE PER POUND','FACTION XP','XP PER POUND','WEIGHT']  
         self.df = self.df.reindex(columns=header)
+        self.items = []
+        for i in range(3):
+            asyncio.run(self.parse(i+1))
+        self.df['PURCHASE/CRAFT COST'] = self.items       
+
 
     def save(self):
-        self.df['PURCHASE/CRAFT COST'] = self.df['PURCHASE/CRAFT COST'].replace(0,'Cannot be bought',regex=True) # Изначально поставил нули, т.к. Pandas не может сравнивать числа и строки. Теперь меняю их а что-то покрасивее
-        self.df.to_html('main.html',index=False) # Конвертировал в HTML и выключил индексы потому что зачем они нужны
+        self.df['PURCHASE/CRAFT COST'] = self.df['PURCHASE/CRAFT COST'].replace(0,'Cannot be bought',regex=True) 
+        self.df.to_html('main.html',index=False)
 
-        with open('main.html','r') as file: # Питон не понимает скобки, приходится заменять их прямо в файле, если бы не это, можно было бы использовать на один файл меньше
+        with open('main.html','r') as file: 
             filedata = file.read()
             filedata = filedata.replace('&lt;','<').replace('&gt;','>') 
         with open('main.html','w') as file:
             file.write(filedata)
 
     def merge(self):
-        soup = BeautifulSoup(open('Origin.html'),'lxml')                 # Обёртка HTML, прописанная отдельно
-        a = BeautifulSoup(open('main.html'),'lxml')                      # Сама таблица, конвертированная в HTML
-        soup.body.append(a)                                              # Объединение файлов
-        with open("index.html", "w") as file:                            # Запись нового файла
+        soup = BeautifulSoup(open('Origin.html'),'lxml')                
+        a = BeautifulSoup(open('main.html'),'lxml')                     
+        soup.body.append(a)                                             
+        with open("index.html", "w") as file:                            
             file.write(str(soup))
 
 
     def compile(self,sort_by=None,asc=False,items=5): 
+        
         self.main(items)
         if sort_by != None:
             self.df = self.df.sort_values(sort_by,ascending=asc)
@@ -83,8 +74,36 @@ class Frame():
 
 
 
+    def get_tasks(self,session,i):
+        tasks = []
+        data = self.df['NAME'].tolist()
+        for i in data[(i-1)*82:i*82]:
+            tasks.append(asyncio.create_task(session.get('https://www.thecycledb.com/item/'+i.lower().replace("'",'').replace(' ','-')))) #iterate every URL
+        return tasks
+
+
+    async def parse(self,i):
+        async with aiohttp.ClientSession() as session:
+            price = []
+            tasks = self.get_tasks(session,i)               
+            responses = await asyncio.gather(*tasks) 
+            for i in responses:                                                            
+                item_soup = BeautifulSoup(await i.text(),'lxml')  
+                try:
+                    a = item_soup.find('h3',string='Shop Price')
+                    price.append(int(a.next_element.next_element.text.replace(',','')))
+                except(AttributeError):
+                    price.append(0)
+            self.items += price
+
+
 if __name__ == '__main__':
-    obj = Frame(None)
-    obj.compile('VALUE PER POUND',items=10,asc=False)
+    a = timeit.default_timer()
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()) 
+    obj = Frame(None,[])
+    obj.compile(items = 0)
+    print()
+    print(timeit.default_timer() - a)
+    print("DONE")
 
 
