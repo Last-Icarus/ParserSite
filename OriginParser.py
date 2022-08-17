@@ -110,7 +110,7 @@ class Frame():
         #   Технически, можно было обыграть эту ситуацию через текстовые файлы (html можно и в одну строку написать), но код не стал
         # хоть сколько-нибудь медленее или нечитаемее, поэтому нет смысла жертвовать удобством редактирования
         print('Merging htmls')
-        soup = BeautifulSoup(open('Origin.html'),'lxml')                
+        soup = BeautifulSoup(open('head.html'),'lxml')                
         a = BeautifulSoup(open('main.html'),'lxml')                     
         soup.body.append(a)                                             
         with open("index.html", "w") as file:                            
